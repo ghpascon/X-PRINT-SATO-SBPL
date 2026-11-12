@@ -1,0 +1,296 @@
+<!-- Placeholder Control Widget -->
+<div class="bg-white rounded-lg shadow border p-4 mb-4" x-data="placeholderControl()">
+    <div class="max-h-96 overflow-auto pr-1 mb-4">
+        <template x-if="Object.keys(currentData).length === 0">
+            <div class="text-sm font-medium text-slate-600">No data available.</div>
+        </template>
+
+        <template x-if="Object.keys(currentData).length > 0">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <template x-for="(itemValue, itemKey) in currentData" :key="itemKey">
+                    <div :class="{'md:col-span-2': Array.isArray(itemValue) && itemValue.length > 0 && typeof itemValue[0] === 'object'}"
+                        class="rounded-lg border border-blue-200 bg-blue-50 p-3">
+
+                        <!-- Título do card (escondido para valores primitivos) -->
+                        <div x-show="!isPrimitive(itemValue)"
+                            class="text-xs font-bold uppercase tracking-wide text-blue-800 mb-2" x-text="itemKey">
+                        </div>
+
+                        <!-- Array of objects (table format) -->
+                        <template
+                            x-if="Array.isArray(itemValue) && itemValue.length > 0 && typeof itemValue[0] === 'object'">
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-xs border-collapse">
+                                    <thead>
+                                        <tr class="bg-blue-100 border-b border-blue-200">
+                                            <template x-for="key in getObjectKeys(itemValue[0])" :key="key">
+                                                <th class="px-2 py-1 text-left font-semibold text-blue-900"
+                                                    x-text="key"></th>
+                                            </template>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        <template x-for="(row, idx) in itemValue" :key="idx">
+                                            <tr class="border-b border-blue-100 hover:bg-blue-100"
+                                                :class="{'bg-white': idx % 2 === 0, 'bg-blue-50': idx % 2 === 1}">
+                                                <template x-for="key in getObjectKeys(itemValue[0])" :key="key">
+                                                    <td class="px-2 py-1 text-slate-700 break-words"
+                                                        x-text="formatSimpleValue(row[key])"></td>
+                                                </template>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </template>
+
+                        <!-- Simple object (key left, value right) -->
+                        <template
+                            x-if="typeof itemValue === 'object' && !Array.isArray(itemValue) && itemValue !== null">
+                            <template x-for="(entry, idx) in dictToArray(itemValue)" :key="idx">
+                                <div class="flex justify-between items-start gap-3 py-1">
+                                    <span class="font-semibold text-blue-700" x-text="entry.key"></span>
+                                    <span class="text-slate-700 break-words text-right"
+                                        x-text="formatSimpleValue(entry.value)"></span>
+                                </div>
+                            </template>
+                        </template>
+
+                        <!-- Simple array (table without header) -->
+                        <template
+                            x-if="Array.isArray(itemValue) && itemValue.length > 0 && typeof itemValue[0] !== 'object'">
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-xs border-collapse">
+                                    <tbody>
+                                        <template x-for="(item, idx) in itemValue" :key="idx">
+                                            <tr class="border-b border-blue-100 hover:bg-blue-100"
+                                                :class="{'bg-white': idx % 2 === 0, 'bg-blue-50': idx % 2 === 1}">
+                                                <td class="px-2 py-1 text-slate-700 break-words"
+                                                    x-text="formatSimpleValue(item)"></td>
+                                            </tr>
+                                        </template>
+                                    </tbody>
+                                </table>
+                            </div>
+                        </template>
+
+                        <!-- Primitive value (key left, value right, no white box) -->
+                        <template x-if="isPrimitive(itemValue)">
+                            <div class="flex justify-between items-start gap-3">
+                                <span class="text-xs font-bold uppercase tracking-wide text-blue-800"
+                                    x-text="itemKey"></span>
+                                <span class="text-sm font-semibold text-slate-700 whitespace-pre-wrap break-words text-right"
+                                    x-text="serializeValue(itemValue)"></span>
+                            </div>
+                        </template>
+                    </div>
+                </template>
+            </div>
+        </template>
+    </div>
+
+    <div class="overflow-x-auto">
+        <div class="min-w-[680px]">
+            <form class="flex items-center gap-2" @submit.prevent="sendValue()">
+                <span class="text-sm text-slate-700 font-semibold">Value:</span>
+                <input x-model="draftValue" type="text" autofocus placeholder="placeholder"
+                    class="w-72 rounded border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-200" />
+                <button type="submit" :disabled="loading || !draftValue.trim()" :class="{
+						'bg-blue-600 hover:bg-blue-700': !loading && draftValue.trim(),
+						'bg-slate-300 cursor-not-allowed': loading || !draftValue.trim(),
+					}" class="text-white px-4 py-2 rounded text-sm font-semibold transition-colors shadow-sm">
+                    <span x-text="loading ? 'Sending...' : 'Send'"></span>
+                </button>
+                <button type="button" @click="clearValue()" :disabled="loading" :class="{
+						'bg-red-500 hover:bg-red-600': !loading,
+						'bg-slate-300 cursor-not-allowed': loading,
+					}" class="text-white px-4 py-2 rounded text-sm font-semibold transition-colors shadow-sm">
+                    Clear
+                </button>
+            </form>
+        </div>
+    </div>
+</div>
+
+<script>
+    function placeholderControl() {
+        return {
+            draftValue: "",
+            currentData: {},
+            loading: false,
+
+            isPrimitive(value) {
+                return value === null
+                    || (typeof value !== "object")
+                    || (Array.isArray(value) && value.length === 0);
+            },
+
+            serializeValue(value) {
+                if (value === null) {
+                    return "null";
+                }
+
+                if (typeof value === "object") {
+                    try {
+                        return JSON.stringify(value, null, 2);
+                    } catch (error) {
+                        return String(value);
+                    }
+                }
+
+                return String(value);
+            },
+
+            formatSimpleValue(value) {
+                if (value === null || value === undefined) {
+                    return "—";
+                }
+
+                if (typeof value === "object") {
+                    try {
+                        return JSON.stringify(value);
+                    } catch {
+                        return String(value);
+                    }
+                }
+
+                if (typeof value === "boolean") {
+                    return value ? "Yes" : "No";
+                }
+
+                return String(value);
+            },
+
+            getObjectKeys(obj) {
+                if (typeof obj !== "object" || obj === null) {
+                    return [];
+                }
+                return Object.keys(obj);
+            },
+
+            dictToArray(obj) {
+                if (typeof obj !== "object" || obj === null) {
+                    return [];
+                }
+                return Object.entries(obj).map(([key, value]) => ({ key, value }));
+            },
+
+            extractErrorMessage(error) {
+                if (typeof error === "string") {
+                    return error;
+                }
+
+                if (error && typeof error === "object") {
+                    return error.message || error.msg || error.menssagem || error.detail || JSON.stringify(error);
+                }
+
+                return "An error occurred. Please try again.";
+            },
+
+            async init() {
+                await this.loadCurrentValue();
+            },
+
+            async loadCurrentValue() {
+                try {
+                    const response = await fetch("{{ url_for('get_value_placeholder') }}");
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(data.message || `HTTP ${response.status}`);
+                    }
+
+                    if (data && typeof data === "object" && !Array.isArray(data)) {
+                        this.currentData = data;
+                    } else if (Array.isArray(data)) {
+                        this.currentData = { data };
+                    } else {
+                        this.currentData = { value: data };
+                    }
+                } catch (error) {
+                    this.currentData = {};
+                    const errorMessage = this.extractErrorMessage(error);
+                    console.error("Error loading placeholder value:", error);
+                    if (typeof window.showAlert === "function") {
+                        window.showAlert(errorMessage, "error", 5000, "toast");
+                    }
+                }
+            },
+
+            async sendValue() {
+                const value = this.draftValue.trim();
+                if (!value || this.loading) {
+                    return;
+                }
+
+                this.loading = true;
+
+                try {
+                    const endpoint = "{{ url_for('set_value_placeholder', value='PLACEHOLDER_VALUE') }}".replace(
+                        "PLACEHOLDER_VALUE",
+                        encodeURIComponent(value),
+                    );
+
+                    const response = await fetch(endpoint, { method: "POST" });
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(data.message || `HTTP ${response.status}`);
+                    }
+
+                    this.draftValue = "";
+                    await this.loadCurrentValue();
+
+                    const successMessage = data.message || `Value set successfully: ${value}`;
+                    if (typeof window.showAlert === "function") {
+                        window.showAlert(successMessage, "success", 5000, "toast");
+                    }
+                } catch (error) {
+                    this.draftValue = "";
+                    const errorMessage = this.extractErrorMessage(error);
+                    console.error("Error setting placeholder value:", error);
+                    if (typeof window.showAlert === "function") {
+                        window.showAlert(errorMessage, "error", 5000, "toast");
+                    }
+                } finally {
+                    this.loading = false;
+                }
+            },
+
+            async clearValue() {
+                if (this.loading) {
+                    return;
+                }
+
+                this.loading = true;
+
+                try {
+                    const response = await fetch("{{ url_for('delete_value_placeholder') }}", {
+                        method: "DELETE",
+                    });
+                    const data = await response.json();
+
+                    if (!response.ok) {
+                        throw new Error(data.message || `HTTP ${response.status}`);
+                    }
+
+                    this.draftValue = "";
+                    await this.loadCurrentValue();
+
+                    const successMessage = data.message || "Value cleared successfully.";
+                    if (typeof window.showAlert === "function") {
+                        window.showAlert(successMessage, "success", 5000, "toast");
+                    }
+                } catch (error) {
+                    const errorMessage = this.extractErrorMessage(error);
+                    console.error("Error clearing placeholder value:", error);
+                    if (typeof window.showAlert === "function") {
+                        window.showAlert(errorMessage, "error", 5000, "toast");
+                    }
+                } finally {
+                    this.loading = false;
+                }
+            },
+        };
+    }
+</script>
