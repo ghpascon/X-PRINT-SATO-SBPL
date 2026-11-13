@@ -68,11 +68,18 @@ class Settings:
 
 		self.PORT: int = data.get('PORT', 5000)
 		self.CLEAR_ON_START: bool = data.get('CLEAR_ON_START', True)
-		self.ONLY_COMPLETE_TABLE: bool = data.get('ONLY_COMPLETE_TABLE', False)
+		self.ONLY_COMPLETE_TABLE: bool = data.get('ONLY_COMPLETE_TABLE', True)
 
 		self.ALLOW_EXTERNAL_CONNECTIONS: bool = data.get('ALLOW_EXTERNAL_CONNECTIONS', True)
 		if not isinstance(self.ALLOW_EXTERNAL_CONNECTIONS, bool):
 			self.ALLOW_EXTERNAL_CONNECTIONS = True
+
+		self.SBPL: str | None = data.get('SBPL', "")
+		if not "{serial}" in self.SBPL:
+			raise ValueError("SBPL must contain '{serial}' placeholder")
+		self.SMTX_DB_URL: str | None = data.get('SMTX_DB_URL', None)
+		if not isinstance(self.SMTX_DB_URL, str) or len(self.SMTX_DB_URL) == 0:
+			self.SMTX_DB_URL = "mysql+pymysql://smartx:smartx@192.168.1.200:3303/smartx"
 
 		self.save()  # Save default config if file doesn't exist
 

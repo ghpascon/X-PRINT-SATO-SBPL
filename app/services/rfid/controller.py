@@ -13,6 +13,8 @@ from app.core import settings
 import logging
 from app.services.license import license_manager
 from smartx_rfid.schemas.tag import WriteTagValidator
+from smartx_rfid.db import DatabaseManager
+from datetime import datetime
 
 
 def _system_device(name: str) -> dict:
@@ -30,6 +32,10 @@ class Controller:
 			example_path=EXAMPLES_DISPATCHER_PATH,
 		)
 		self.write_list: dict = {}
+		self.smtx_db = DatabaseManager(settings.SMTX_DB_URL)
+		self.smtx_db.initialize()
+
+		self.order_data = {}
 
 	# [ EVENTS ]
 	def on_event(self, device: dict, event_type: str, event_data):
@@ -45,16 +51,18 @@ class Controller:
 			f"[ EVENT ] {device.get('name')} (SN: {device.get('serial_number')}) - "
 			f'{event_type}: {event_data}'
 		)
-		if not license_manager.validate_license():
+		if not isinstance(self.order_data, dict):
 			return
-		asyncio.create_task(
-			self.integration.on_event_integration(
-				device=device, event_type=event_type, event_data=event_data
-			)
-		)
-		asyncio.create_task(
-			self.dispatcher.add_async(device=device, event_type=event_type, data=event_data)
-		)
+
+		if event_type == 'print_sent':
+			self.order_data['print_ids'][event_data]['status'] = 'sent'
+		elif event_type == 'print_sent_error':
+			self.order_data['print_ids'][event_data.get('id')]['status'] = 'print_error'
+		elif event_type == 'print_error':
+			self.order_data['print_ids'][event_data]['status'] = 'print_error'
+		elif event_type == 'print_success':
+			self.order_data['print_ids'][event_data]['status'] = 'success'
+			self.save_print_to_db(event_data)
 
 	# [ Reading Events ]
 	def on_start(self, device: dict):
@@ -70,20 +78,9 @@ class Controller:
 	# [ Tag Events ]
 	def on_new_tag(self, device: dict, tag: dict):
 		logging.info(f"[ TAG ] {device.get('name')} - {tag}")
-		if not license_manager.validate_license():
-			return
-		asyncio.create_task(self.integration.on_tag_integration(tag=tag))
-		asyncio.create_task(self.dispatcher.add_async(device=device, event_type='tag', data=tag))
 
 	def on_existing_tag(self, device: dict, tag: dict):
 		asyncio.create_task(self.check_target(tag))
-		if settings.ALWAYS_SEND:
-			if not license_manager.validate_license():
-				return
-			asyncio.create_task(self.integration.on_tag_integration(tag=tag))
-			asyncio.create_task(
-				self.dispatcher.add_async(device=device, event_type='tag', data=tag)
-			)
 
 	# [ WRITE LIST ]
 	def create_write_list_prefix(self, epcs: list, prefix: str):
@@ -157,3 +154,88 @@ class Controller:
 				password='00000000',
 			),
 		)
+
+	# SMTX QUERY
+	def get_customers(self, params: dict | None = None):
+		query = """
+			SELECT id, name FROM customer
+		"""
+		return self.smtx_db.execute_query(query, params)
+
+	def get_production_orders(self, customer_id: int):
+		query = """
+			SELECT id, idcode, quantity, serial_ini, serial_end FROM production_order WHERE customer_id = :customer_id
+		"""
+		return self.smtx_db.execute_query(query, {'customer_id': customer_id})
+
+	def get_production_order_batches(self, production_order_id: int):
+		query = """
+			SELECT id, idcode FROM production_order_batch WHERE production_order_id = :production_order_id
+		"""
+		return self.smtx_db.execute_query(query, {'production_order_id': production_order_id})
+
+	def set_order_data(
+		self,
+		customer_data: dict,
+		production_order_data: dict,
+		production_order_batch_data: dict,
+	):
+		self.order_data = {
+			'customer_data': customer_data,
+			'production_order_data': production_order_data,
+			'production_order_batch_data': production_order_batch_data,
+			'print_ids': {},
+		}
+
+	def start_production(self, device_name: str):
+		if not self.order_data:
+			logging.error('Order data is not set')
+			return
+		logging.info('Starting production with order data: %s', self.order_data)
+		self.on_event(
+			device=_system_device('production'),
+			event_type='start_production',
+			event_data={**self.order_data, 'device_name': device_name},
+		)
+		sbpl = str(settings.SBPL)
+		to_print = [
+			sbpl.format(serial=self.order_data['production_order_data']['serial_ini'] + i)
+			for i in range(self.order_data['production_order_data']['quantity'])
+		]
+		ids = self.devices.add_to_print_queue(device_name, to_print)
+		if not ids:
+			raise RuntimeError('Failed to add to print queue')
+
+		for i, id in enumerate(ids):
+			self.order_data['print_ids'][id] = {
+				'serial': self.order_data['production_order_data']['serial_ini'] + i,
+				'status': 'pending',
+			}
+
+	def save_print_to_db(self, print_id: str):
+		if not self.order_data:
+			raise RuntimeError('Order data is not set')
+		print_data = self.order_data['print_ids'].get(print_id)
+		if not print_data:
+			raise RuntimeError(f'Print ID {print_id} not found in order data')
+		# Save print_data to the database here
+		query = """
+			INSERT INTO production_order_tag (production_order_id, production_order_batch_id, serial, barcode, epc, locked, reg_date)
+			VALUES (:production_order_id, :production_order_batch_id, :serial, :barcode, :epc, :locked, :reg_date)
+		"""
+		self.smtx_db.execute_query(
+			query,
+			{
+				'production_order_id': self.order_data.get('production_order_data', {}).get('id'),
+				'production_order_batch_id': self.order_data.get(
+					'production_order_batch_data', {}
+				).get('id'),
+				'serial': print_data.get('serial'),
+				'barcode': str(print_data.get('serial')),
+				'epc': str(print_data.get('serial')),
+				'locked': 0,
+				'reg_date': datetime.now(),
+			},
+		)
+
+		logging.info('Saved print data to the database: %s', print_data)

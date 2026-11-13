@@ -1,21 +1,244 @@
 {% extends "base.html" %} {% block content %}
-<!-- Main Layout Container -->
-<div class="grid grid-cols-1 lg:grid-cols-12 gap-4 pt-5 pb-5 px-4">
-  <div class="lg:col-span-3 space-y-4">
-    {% include 'includes/_events.html' %} {% include 'includes/_devices.html' %}
-  </div>
-  <div class="lg:col-span-9">
-    {# {% include 'includes/_placeholder.html' %} #}
-    {# {% include 'includes/_file_uploader.html' %} #}   
-    {% if table == "complete" or only_complete_table %}
-    {% include 'includes/_tags_all.html' %}
-    {% elif table == "gtin" %}
-    {% include 'includes/_tags_gtin.html' %}
-    {% elif table == "by_ant" %}
-    {% include 'includes/_tags_by_ant.html' %}
-    {% else %}
-    {% include 'includes/_tags.html' %}
-    {% endif %}
-  </div>
+<div class="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
+  <section class="mb-4 rounded-2xl border border-slate-200 bg-white p-5 shadow-lg shadow-slate-200/50 sm:p-6"
+    x-data="currentOrderCard()" x-init="loadCurrentOrder()">
+    <div class="flex flex-wrap items-start justify-between gap-4">
+      <div>
+        <p class="text-xs font-semibold uppercase tracking-[0.16em] text-blue-600">Produção</p>
+        <h2 class="mt-1 text-xl font-bold text-slate-900">Pedido atual</h2>
+      </div>
+      <a href="{{ url_for('order_data') }}"
+        class="inline-flex items-center gap-2 rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 transition hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700">
+        Alterar pedido
+        <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
+        </svg>
+      </a>
+    </div>
+
+    <div x-show="loading" class="mt-5 flex items-center gap-3 text-sm text-slate-500">
+      <span class="h-4 w-4 animate-spin rounded-full border-2 border-blue-200 border-t-blue-600"></span>
+      Carregando pedido atual…
+    </div>
+
+    <template x-if="!loading && order">
+      <div class="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div class="rounded-xl bg-slate-50 p-4 ring-1 ring-inset ring-slate-200">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Cliente</p>
+          <p class="mt-1 break-words font-semibold text-slate-900"
+            x-text="order.customer_data?.name || `ID ${order.customer_data?.id ?? '—'}`"></p>
+        </div>
+        <div class="rounded-xl bg-slate-50 p-4 ring-1 ring-inset ring-slate-200">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Ordem de produção</p>
+          <p class="mt-1 break-words font-semibold text-slate-900"
+            x-text="order.production_order_data?.idcode || `ID ${order.production_order_data?.id ?? '—'}`"></p>
+        </div>
+        <div class="rounded-xl bg-slate-50 p-4 ring-1 ring-inset ring-slate-200">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Lote</p>
+          <p class="mt-1 break-words font-semibold text-slate-900"
+            x-text="order.production_order_batch_data?.idcode || `ID ${order.production_order_batch_data?.id ?? '—'}`">
+          </p>
+        </div>
+        <div class="rounded-xl bg-slate-50 p-4 ring-1 ring-inset ring-slate-200">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Quantidade</p>
+          <p class="mt-1 break-words font-semibold text-slate-900"
+            x-text="order.production_order_data?.quantity ?? '—'"></p>
+        </div>
+        <div class="rounded-xl bg-slate-50 p-4 ring-1 ring-inset ring-slate-200">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Serial inicial</p>
+          <p class="mt-1 break-words font-semibold text-slate-900"
+            x-text="order.production_order_data?.serial_ini ?? '—'"></p>
+        </div>
+        <div class="rounded-xl bg-slate-50 p-4 ring-1 ring-inset ring-slate-200">
+          <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Serial final</p>
+          <p class="mt-1 break-words font-semibold text-slate-900"
+            x-text="order.production_order_data?.serial_end ?? '—'"></p>
+        </div>
+      </div>
+    </template>
+
+    <p x-show="!loading && errorMessage" x-text="errorMessage" class="mt-4 text-sm text-amber-700" x-cloak></p>
+
+    <div x-show="!loading && order" class="mt-6 border-t border-slate-200 pt-5" x-cloak>
+      <div x-show="!productionStarted" class="space-y-4">
+        <div>
+          <label for="production-printer" class="mb-2 block text-sm font-semibold text-slate-700">Impressora</label>
+          <select id="production-printer" x-model="selectedPrinterName"
+            :disabled="loadingDevices || printers.length === 0 || startingProduction"
+            class="w-full max-w-xl rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50">
+            <option value="" x-text="loadingDevices ? 'Carregando impressoras…' : 'Selecione uma impressora'"></option>
+            <template x-for="printer in printers" :key="printer.name">
+              <option :value="printer.name" x-text="printer.name + (printer.is_connected ? '' : ' (desconectada)')">
+              </option>
+            </template>
+          </select>
+          <p x-show="!loadingDevices && printers.length === 0" class="mt-2 text-sm text-amber-700" x-cloak>
+            Nenhuma impressora configurada foi encontrada.
+          </p>
+          <p x-show="selectedPrinter() && !selectedPrinter().is_connected" class="mt-2 text-sm text-red-600" x-cloak>
+            A impressora selecionada está desconectada.
+          </p>
+        </div>
+
+        <button type="button" @click="startProduction()"
+          :disabled="startingProduction || !selectedPrinter() || !selectedPrinter().is_connected"
+          class="inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-600 px-5 py-3 font-semibold text-white shadow-lg shadow-emerald-600/20 transition hover:bg-emerald-700 focus:outline-none focus:ring-4 focus:ring-emerald-200 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none">
+          <span x-text="startingProduction ? 'Iniciando produção…' : 'Começar produção'"></span>
+        </button>
+      </div>
+
+      <div x-show="productionStarted" class="rounded-xl bg-blue-50 p-4 ring-1 ring-inset ring-blue-200" x-cloak>
+        <div class="flex flex-wrap items-center justify-between gap-4">
+          <div>
+            <p class="text-sm font-semibold text-blue-900">Produção iniciada</p>
+            <p class="mt-1 text-sm text-blue-800">
+              Impressora: <span class="font-semibold" x-text="selectedPrinterName"></span>
+            </p>
+            <p class="mt-1 text-sm text-blue-800">
+              Etiquetas aguardando na fila: <span class="font-bold tabular-nums"
+                x-text="queueCount ?? 'Consultando…'"></span>
+            </p>
+          </div>
+          <button type="button" x-show="queueCount === 0" @click="finishProduction()" :disabled="finishingProduction"
+            class="inline-flex items-center justify-center rounded-xl bg-slate-900 px-5 py-3 font-semibold text-white transition hover:bg-slate-700 focus:outline-none focus:ring-4 focus:ring-slate-300 disabled:cursor-wait disabled:bg-slate-400"
+            x-cloak>
+            <span x-text="finishingProduction ? 'Finalizando…' : 'Finalizar a produção'"></span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
 </div>
+
+<script>
+  function currentOrderCard() {
+    return {
+      loading: true,
+      order: null,
+      printers: [],
+      selectedPrinterName: "",
+      loadingDevices: false,
+      startingProduction: false,
+      productionStarted: false,
+      queueCount: null,
+      queuePollHandle: null,
+      finishingProduction: false,
+      errorMessage: "",
+      urls: {
+        order: "{{ url_for('get_order_data') }}",
+        devices: "{{ url_for('get_devices_info') }}",
+        startProduction: "{{ url_for('start_production', device_name='DEVICE_NAME') }}",
+        clearOrderData: "{{ url_for('clear_order_data') }}",
+        orderSelection: "{{ url_for('order_data') }}",
+      },
+
+      destroy() {
+        if (this.queuePollHandle) clearInterval(this.queuePollHandle);
+      },
+
+      async getJson(url, options = {}) {
+        const response = await fetch(url, options);
+        const payload = await response.json();
+        if (!response.ok) {
+          throw new Error(payload.message || "Não foi possível carregar os dados.");
+        }
+        return payload;
+      },
+
+      async loadCurrentOrder() {
+        try {
+          await this.loadPrinters();
+          const order = await this.getJson(this.urls.order);
+          if (!order || !order.production_order_data) {
+            this.order = null;
+            return;
+          }
+          this.order = order;
+        } catch (error) {
+          this.errorMessage = error.message || "Não foi possível carregar os dados do pedido atual.";
+        } finally {
+          this.loading = false;
+        }
+      },
+
+      async loadPrinters() {
+        this.loadingDevices = true;
+        try {
+          const devices = await this.getJson(this.urls.devices);
+          this.printers = (Array.isArray(devices) ? devices : []).filter(
+            (device) => device.device_type === "printer",
+          );
+          if (this.printers.length === 1) {
+            this.selectedPrinterName = this.printers[0].name;
+          }
+        } catch (error) {
+          this.errorMessage = error.message || "Não foi possível carregar as impressoras.";
+        } finally {
+          this.loadingDevices = false;
+        }
+      },
+
+      selectedPrinter() {
+        return this.printers.find((printer) => printer.name === this.selectedPrinterName) || null;
+      },
+
+      async refreshQueueCount() {
+        if (!this.selectedPrinterName) return;
+        try {
+          const devices = await this.getJson(this.urls.devices);
+          const printer = (Array.isArray(devices) ? devices : []).find(
+            (device) => device.name === this.selectedPrinterName && device.device_type === "printer",
+          );
+          if (printer) {
+            this.printers = this.printers.map((item) => item.name === printer.name ? printer : item);
+            const count = printer.to_print == null ? NaN : Number(printer.to_print);
+            this.queueCount = Number.isFinite(count) ? count : null;
+          } else {
+            this.queueCount = null;
+          }
+        } catch (error) {
+          this.queueCount = null;
+          this.errorMessage = error.message || "Não foi possível consultar a fila da impressora.";
+        }
+      },
+
+      async startProduction() {
+        if (!this.selectedPrinterName || !this.selectedPrinter()?.is_connected) return;
+        this.startingProduction = true;
+        this.errorMessage = "";
+        try {
+          const endpoint = this.urls.startProduction.replace(
+            "DEVICE_NAME",
+            encodeURIComponent(this.selectedPrinterName),
+          );
+          await this.getJson(endpoint, { method: "POST" });
+          this.productionStarted = true;
+          await this.refreshQueueCount();
+          this.queuePollHandle = setInterval(() => this.refreshQueueCount(), 2000);
+        } catch (error) {
+          this.errorMessage = error.message || "Não foi possível iniciar a produção.";
+        } finally {
+          this.startingProduction = false;
+        }
+      },
+
+      async finishProduction() {
+        if (this.queueCount !== 0 || this.finishingProduction) return;
+        this.finishingProduction = true;
+        if (this.queuePollHandle) {
+          clearInterval(this.queuePollHandle);
+          this.queuePollHandle = null;
+        }
+        this.errorMessage = "";
+        try {
+          await this.getJson(this.urls.clearOrderData, { method: "POST" });
+          window.location.assign(this.urls.orderSelection);
+        } catch (error) {
+          this.errorMessage = error.message || "Não foi possível finalizar a produção.";
+          this.finishingProduction = false;
+        }
+      },
+    };
+  }
+</script>
 {% endblock %}

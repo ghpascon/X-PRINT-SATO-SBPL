@@ -3,6 +3,7 @@ from fastapi.responses import JSONResponse
 from smartx_rfid.utils.path import get_prefix_from_path
 from app.schemas.write_list import WriteListPrefixModel
 from app.services import rfid_manager
+from app.schemas.controller import SetOrderData
 
 router_prefix = get_prefix_from_path(__file__)
 router = APIRouter(prefix=router_prefix, tags=[router_prefix])
@@ -141,3 +142,85 @@ async def receive_from_file(items: list[dict]):
 		'received_count': len(items),
 		'preview': items[:5],
 	}
+
+
+@router.get(
+	'/get_customers',
+	summary='Get customers from the RFID controller',
+)
+async def get_customers():
+	try:
+		customers = rfid_manager.controller.get_customers()
+		return customers
+	except Exception as e:
+		return JSONResponse(status_code=500, content={'message': str(e)})
+
+
+@router.get(
+	'/get_production_orders/{customer_id}',
+	summary='Get production orders for a customer from the RFID controller',
+)
+async def get_production_orders(customer_id: int):
+	try:
+		production_orders = rfid_manager.controller.get_production_orders(customer_id)
+		return production_orders
+	except Exception as e:
+		return JSONResponse(status_code=500, content={'message': str(e)})
+
+
+@router.get(
+	'/get_production_order_batches/{production_order_id}',
+	summary='Get production order batches for a production order from the RFID controller',
+)
+async def get_production_order_batches(production_order_id: int):
+	try:
+		batches = rfid_manager.controller.get_production_order_batches(production_order_id)
+		return batches
+	except Exception as e:
+		return JSONResponse(status_code=500, content={'message': str(e)})
+
+
+@router.get(
+	'/get_order_data',
+	summary='Get order data from the RFID controller',
+)
+async def get_order_data():
+	order_data = rfid_manager.controller.order_data
+	return order_data
+
+
+@router.post(
+	'/set_order_data',
+	summary='Set order data in the RFID controller',
+)
+async def set_order_data(order_data: SetOrderData):
+	try:
+		rfid_manager.controller.set_order_data(
+			customer_data=order_data.customer_data,
+			production_order_data=order_data.production_order_data,
+			production_order_batch_data=order_data.production_order_batch_data,
+		)
+		return {'message': 'Order data set successfully'}
+	except Exception as e:
+		return JSONResponse(status_code=500, content={'message': str(e)})
+
+
+@router.post(
+	'/start_production/{device_name}',
+	summary='Start production in the RFID controller',
+)
+async def start_production(device_name: str):
+	try:
+		rfid_manager.controller.start_production(device_name)
+		return {'message': 'Production started successfully'}
+	except Exception as e:
+		return JSONResponse(status_code=500, content={'message': str(e)})
+
+
+@router.post(
+	'/clear_order_data',
+	summary='Clear order data in the RFID controller',
+)
+async def clear_order_data():
+	rfid_manager.controller.order_data = None
+	return {'message': 'Order data cleared successfully'}

@@ -1,0 +1,343 @@
+{% extends "base.html" %} {% block content %}
+<div class="mx-auto max-w-3xl px-4 py-8 sm:px-6 lg:px-8">
+    <section class="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xl shadow-slate-200/60"
+        x-data="orderDataForm()" x-init="loadCustomers()">
+        <div class="p-6 sm:p-8">
+            <form @submit.prevent="submitForm" class="space-y-6">
+                <div>
+                    <label for="customer" class="mb-2 block text-sm font-semibold text-slate-700">1. Cliente</label>
+                    <div class="relative" @click.outside="customerDropdownOpen = false">
+                        <button id="customer" type="button"
+                            @click="customerDropdownOpen = !customerDropdownOpen; if (customerDropdownOpen) $nextTick(() => $refs.customerSearch.focus())"
+                            :disabled="loadingCustomers" :aria-expanded="customerDropdownOpen"
+                            class="flex w-full items-center justify-between rounded-xl border border-slate-300 bg-white px-4 py-3 text-left text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-wait disabled:bg-slate-50">
+                            <span
+                                x-text="selectedCustomerLabel() || (loadingCustomers ? 'Carregando clientes…' : 'Selecione um cliente')"
+                                :class="formData.customer_id ? 'text-slate-800' : 'text-slate-400'"></span>
+                            <svg class="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+                        <div x-show="customerDropdownOpen" x-transition
+                            class="absolute z-20 mt-2 w-full rounded-xl border border-slate-200 bg-white p-2 shadow-xl"
+                            x-cloak>
+                            <input type="search" x-model="customerSearch" x-ref="customerSearch"
+                                placeholder="Pesquisar clientes…" aria-label="Pesquisar clientes"
+                                class="mb-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+                            <div class="max-h-56 overflow-y-auto" role="listbox" aria-label="Clientes">
+                                <template x-for="customer in filteredCustomers()" :key="customer.id">
+                                    <button type="button" role="option"
+                                        :aria-selected="Number(formData.customer_id) === Number(customer.id)"
+                                        @click="selectCustomer(customer)"
+                                        class="block w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+                                        x-text="customer.name"></button>
+                                </template>
+                                <p x-show="filteredCustomers().length === 0" class="px-3 py-2 text-sm text-slate-500">
+                                    Nenhum cliente encontrado.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <label for="production-order" class="mb-2 block text-sm font-semibold text-slate-700">2. Ordem de
+                        produção</label>
+                    <div class="relative" @click.outside="orderDropdownOpen = false">
+                        <button id="production-order" type="button"
+                            @click="orderDropdownOpen = !orderDropdownOpen; if (orderDropdownOpen) $nextTick(() => $refs.orderSearch.focus())"
+                            :disabled="!formData.customer_id || loadingOrders" :aria-expanded="orderDropdownOpen"
+                            class="flex w-full items-center justify-between rounded-xl border border-slate-300 bg-white px-4 py-3 text-left text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400">
+                            <span
+                                x-text="selectedOrderLabel() || (loadingOrders ? 'Carregando ordens de produção…' : 'Selecione uma ordem de produção')"
+                                :class="formData.production_order_id ? 'text-slate-800' : 'text-slate-400'"></span>
+                            <svg class="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+                        <div x-show="orderDropdownOpen" x-transition
+                            class="absolute z-20 mt-2 w-full rounded-xl border border-slate-200 bg-white p-2 shadow-xl"
+                            x-cloak>
+                            <input type="search" x-model="orderSearch" x-ref="orderSearch"
+                                placeholder="Pesquisar ordens de produção…" aria-label="Pesquisar ordens de produção"
+                                class="mb-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+                            <div class="max-h-56 overflow-y-auto" role="listbox" aria-label="Ordens de produção">
+                                <template x-for="order in filteredOrders()" :key="order.id">
+                                    <button type="button" role="option"
+                                        :aria-selected="Number(formData.production_order_id) === Number(order.id)"
+                                        @click="selectOrder(order)"
+                                        class="block w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+                                        x-text="orderOptionLabel(order)"></button>
+                                </template>
+                                <p x-show="filteredOrders().length === 0" class="px-3 py-2 text-sm text-slate-500">
+                                    Nenhuma ordem de produção encontrada.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div>
+                    <label for="production-batch" class="mb-2 block text-sm font-semibold text-slate-700">3.
+                        Lote</label>
+                    <div class="relative" @click.outside="batchDropdownOpen = false">
+                        <button id="production-batch" type="button"
+                            @click="batchDropdownOpen = !batchDropdownOpen; if (batchDropdownOpen) $nextTick(() => $refs.batchSearch.focus())"
+                            :disabled="!formData.production_order_id || loadingBatches"
+                            :aria-expanded="batchDropdownOpen"
+                            class="flex w-full items-center justify-between rounded-xl border border-slate-300 bg-white px-4 py-3 text-left text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-400">
+                            <span
+                                x-text="selectedBatchLabel() || (loadingBatches ? 'Carregando lotes…' : 'Selecione um lote')"
+                                :class="formData.production_order_batch_id ? 'text-slate-800' : 'text-slate-400'"></span>
+                            <svg class="h-4 w-4 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                                aria-hidden="true">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                    d="M19 9l-7 7-7-7" />
+                            </svg>
+                        </button>
+                        <div x-show="batchDropdownOpen" x-transition
+                            class="absolute z-20 mt-2 w-full rounded-xl border border-slate-200 bg-white p-2 shadow-xl"
+                            x-cloak>
+                            <input type="search" x-model="batchSearch" x-ref="batchSearch"
+                                placeholder="Pesquisar lotes…" aria-label="Pesquisar lotes"
+                                class="mb-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100">
+                            <div class="max-h-56 overflow-y-auto" role="listbox" aria-label="Lotes">
+                                <template x-for="batch in filteredBatches()" :key="batch.id">
+                                    <button type="button" role="option"
+                                        :aria-selected="Number(formData.production_order_batch_id) === Number(batch.id)"
+                                        @click="selectBatch(batch)"
+                                        class="block w-full rounded-lg px-3 py-2 text-left text-sm text-slate-700 hover:bg-blue-50 hover:text-blue-700"
+                                        x-text="batch.idcode"></button>
+                                </template>
+                                <p x-show="filteredBatches().length === 0" class="px-3 py-2 text-sm text-slate-500">
+                                    Nenhum lote encontrado.</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <p x-show="errorMessage" x-text="errorMessage" role="alert"
+                    class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700" x-cloak></p>
+
+                <button type="submit"
+                    :disabled="saving || !formData.customer_id || !formData.production_order_id || !formData.production_order_batch_id"
+                    class="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3 font-semibold text-white shadow-lg shadow-blue-600/20 transition hover:bg-blue-700 focus:outline-none focus:ring-4 focus:ring-blue-200 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none">
+                    <svg x-show="saving" class="h-5 w-5 animate-spin" viewBox="0 0 24 24" fill="none"
+                        aria-hidden="true">
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                        </circle>
+                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z">
+                        </path>
+                    </svg>
+                    <span x-text="saving ? 'Definindo pedido…' : 'Definir pedido ativo'"></span>
+                </button>
+            </form>
+        </div>
+    </section>
+</div>
+
+<script>
+    function orderDataForm() {
+        return {
+            customers: [],
+            productionOrders: [],
+            batches: [],
+            loadingCustomers: false,
+            loadingOrders: false,
+            loadingBatches: false,
+            saving: false,
+            errorMessage: "",
+            customerDropdownOpen: false,
+            orderDropdownOpen: false,
+            batchDropdownOpen: false,
+            customerSearch: "",
+            orderSearch: "",
+            batchSearch: "",
+            formData: {
+                customer_id: "",
+                production_order_id: "",
+                production_order_batch_id: "",
+            },
+            urls: {
+                customers: "{{ url_for('get_customers') }}",
+                productionOrders: "{{ url_for('get_production_orders', customer_id=0) }}",
+                batches: "{{ url_for('get_production_order_batches', production_order_id=0) }}",
+                setOrderData: "{{ url_for('set_order_data') }}",
+                home: "{{ url_for('index') }}",
+            },
+
+            filteredCustomers() {
+                const query = this.customerSearch.trim().toLowerCase();
+                return this.customers.filter((customer) =>
+                    String(customer.name || "").toLowerCase().includes(query) ||
+                    String(customer.id).includes(query)
+                );
+            },
+
+            filteredOrders() {
+                const query = this.orderSearch.trim().toLowerCase();
+                return this.productionOrders.filter((order) =>
+                    String(order.idcode || "").toLowerCase().includes(query) ||
+                    String(order.id).includes(query)
+                );
+            },
+
+            filteredBatches() {
+                const query = this.batchSearch.trim().toLowerCase();
+                return this.batches.filter((batch) =>
+                    String(batch.idcode || "").toLowerCase().includes(query) ||
+                    String(batch.id).includes(query)
+                );
+            },
+
+            selectedCustomerLabel() {
+                const selected = this.customers.find((customer) => Number(customer.id) === Number(this.formData.customer_id));
+                return selected ? selected.name : "";
+            },
+
+            selectedCustomer() {
+                return this.customers.find((customer) => Number(customer.id) === Number(this.formData.customer_id)) || null;
+            },
+
+            selectedOrder() {
+                return this.productionOrders.find((order) => Number(order.id) === Number(this.formData.production_order_id)) || null;
+            },
+
+            selectedBatch() {
+                return this.batches.find((batch) => Number(batch.id) === Number(this.formData.production_order_batch_id)) || null;
+            },
+
+            selectedOrderLabel() {
+                const selected = this.productionOrders.find((order) => Number(order.id) === Number(this.formData.production_order_id));
+                return selected ? this.orderOptionLabel(selected) : "";
+            },
+
+            orderOptionLabel(order) {
+                const details = [];
+                if (order.quantity != null) details.push(`Qtd: ${order.quantity}`);
+                if (order.serial_ini != null || order.serial_end != null) {
+                    details.push(`Serial: ${order.serial_ini ?? '—'} até ${order.serial_end ?? '—'}`);
+                }
+                return details.length ? `${order.idcode} — ${details.join(' — ')}` : String(order.idcode);
+            },
+
+            selectedBatchLabel() {
+                const selected = this.batches.find((batch) => Number(batch.id) === Number(this.formData.production_order_batch_id));
+                return selected ? selected.idcode : "";
+            },
+
+            async selectCustomer(customer) {
+                this.formData.customer_id = Number(customer.id);
+                this.customerDropdownOpen = false;
+                this.customerSearch = "";
+                await this.loadProductionOrders();
+            },
+
+            async selectOrder(order) {
+                this.formData.production_order_id = Number(order.id);
+                this.orderDropdownOpen = false;
+                this.orderSearch = "";
+                await this.loadBatches();
+            },
+
+            selectBatch(batch) {
+                this.formData.production_order_batch_id = Number(batch.id);
+                this.batchDropdownOpen = false;
+                this.batchSearch = "";
+            },
+
+            async fetchRows(url) {
+                const response = await fetch(url);
+                const payload = await response.json();
+                if (!response.ok) {
+                    throw new Error(payload.message || "Não foi possível carregar as opções.");
+                }
+                return Array.isArray(payload) ? payload : (payload.data || []);
+            },
+
+            async loadCustomers() {
+                this.loadingCustomers = true;
+                this.errorMessage = "";
+                try {
+                    this.customers = await this.fetchRows(this.urls.customers);
+                    if (this.customers.length === 1) {
+                        await this.selectCustomer(this.customers[0]);
+                    }
+                } catch (error) {
+                    this.errorMessage = error.message || "Não foi possível carregar os clientes.";
+                } finally {
+                    this.loadingCustomers = false;
+                }
+            },
+
+            async loadProductionOrders() {
+                this.formData.production_order_id = "";
+                this.formData.production_order_batch_id = "";
+                this.productionOrders = [];
+                this.batches = [];
+                this.errorMessage = "";
+                if (!this.formData.customer_id) return;
+
+                this.loadingOrders = true;
+                try {
+                    const url = this.urls.productionOrders.replace(/0$/, encodeURIComponent(this.formData.customer_id));
+                    this.productionOrders = await this.fetchRows(url);
+                    if (this.productionOrders.length === 1) {
+                        await this.selectOrder(this.productionOrders[0]);
+                    }
+                } catch (error) {
+                    this.errorMessage = error.message || "Não foi possível carregar as ordens de produção.";
+                } finally {
+                    this.loadingOrders = false;
+                }
+            },
+
+            async loadBatches() {
+                this.formData.production_order_batch_id = "";
+                this.batches = [];
+                this.errorMessage = "";
+                if (!this.formData.production_order_id) return;
+
+                this.loadingBatches = true;
+                try {
+                    const url = this.urls.batches.replace(/0$/, encodeURIComponent(this.formData.production_order_id));
+                    this.batches = await this.fetchRows(url);
+                    if (this.batches.length === 1) {
+                        this.selectBatch(this.batches[0]);
+                    }
+                } catch (error) {
+                    this.errorMessage = error.message || "Não foi possível carregar os lotes.";
+                } finally {
+                    this.loadingBatches = false;
+                }
+            },
+
+            async submitForm() {
+                this.saving = true;
+                this.errorMessage = "";
+                try {
+                    const response = await fetch(this.urls.setOrderData, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({
+                            customer_data: this.selectedCustomer(),
+                            production_order_data: this.selectedOrder(),
+                            production_order_batch_data: this.selectedBatch(),
+                        }),
+                    });
+                    const payload = await response.json();
+                    if (!response.ok) {
+                        throw new Error(payload.message || "Não foi possível definir o pedido ativo.");
+                    }
+                    window.location.assign(this.urls.home);
+                } catch (error) {
+                    this.errorMessage = error.message || "Não foi possível definir o pedido ativo.";
+                    this.saving = false;
+                }
+            },
+        };
+    }
+</script>
+{% endblock %}

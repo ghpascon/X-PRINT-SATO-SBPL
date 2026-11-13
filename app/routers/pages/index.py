@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Request
+from fastapi.responses import RedirectResponse
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse
-
+from app.services import rfid_manager
 from app.core import settings, templates
 from app import __version__
 
@@ -25,6 +26,8 @@ async def index(request: Request):
 	# 	{'text': 'Atenção: Verifique a configuração dos devices', 'level': 'warning'},
 	# 	{'text': 'Erro de conexão detectado', 'level': 'error'},
 	# ]
+	if not rfid_manager.controller.order_data:
+		return RedirectResponse(url='/order_data')
 	return templates.TemplateResponse(
 		'pages/index/main.html',
 		{
@@ -33,6 +36,15 @@ async def index(request: Request):
 			'alerts': alerts,
 			'only_complete_table': settings.ONLY_COMPLETE_TABLE,
 		},
+		media_type='text/html; charset=utf-8',
+	)
+
+
+@router.get('/order_data', response_class=HTMLResponse)
+async def order_data(request: Request):
+	return templates.TemplateResponse(
+		'pages/index/order_data.html',
+		{'request': request, 'title': settings.TITLE, 'alerts': [], 'table': 'order_data'},
 		media_type='text/html; charset=utf-8',
 	)
 
