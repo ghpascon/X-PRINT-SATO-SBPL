@@ -76,7 +76,7 @@ class Settings:
 
 		self.SBPL: str | None = data.get('SBPL', "")
 		if not "{serial}" in self.SBPL:
-			raise ValueError("SBPL must contain '{serial}' placeholder")
+			self.SBPL = "{serial}"
 		self.SMTX_DB_URL: str | None = data.get('SMTX_DB_URL', None)
 		if not isinstance(self.SMTX_DB_URL, str) or len(self.SMTX_DB_URL) == 0:
 			self.SMTX_DB_URL = "mysql+pymysql://smartx:smartx@192.168.1.200:3303/smartx"
