@@ -53,15 +53,21 @@ class Controller:
 		if not isinstance(self.order_data, dict):
 			return
 
+		if event_type in {'print_sent', 'print_sent_error', 'print_error', 'print_success'}:
+			print_id = event_data.get('id') if isinstance(event_data, dict) else None
+			print_record = self.order_data.get('print_ids', {}).get(print_id)
+			if not print_record:
+				return
+
 		if event_type == 'print_sent':
-			self.order_data['print_ids'][event_data]['status'] = 'sent'
-		elif event_type == 'print_sent_error':
-			self.order_data['print_ids'][event_data.get('id')]['status'] = 'print_error'
-		elif event_type == 'print_error':
-			self.order_data['print_ids'][event_data]['status'] = 'print_error'
-		elif event_type == 'print_success':
-			self.order_data['print_ids'][event_data]['status'] = 'success'
+			print_record['status'] = 'sent'
 			self.save_print_to_db(event_data)
+		elif event_type == 'print_sent_error':
+			print_record['status'] = 'print_error'
+		elif event_type == 'print_error':
+			print_record['status'] = 'print_error'
+		elif event_type == 'print_success':
+			print_record['status'] = 'success'
 
 	# [ Reading Events ]
 	def on_start(self, device: dict):
@@ -186,6 +192,23 @@ class Controller:
 			'print_ids': {},
 		}
 
+	def get_already_printed(self, production_order_id: int, production_order_batch_id: int):
+		query = """
+			SELECT serial FROM production_order_tag
+			WHERE production_order_id = :production_order_id
+				AND production_order_batch_id = :production_order_batch_id
+		"""
+		return [
+			row['serial']
+			for row in self.smtx_db.execute_query(
+				query,
+				{
+					'production_order_id': production_order_id,
+					'production_order_batch_id': production_order_batch_id,
+				},
+			)
+		]
+
 	def start_production(self, device_name: str):
 		if not self.order_data:
 			logging.error('Order data is not set')
@@ -196,26 +219,46 @@ class Controller:
 			event_type='start_production',
 			event_data={**self.order_data, 'device_name': device_name},
 		)
-		sbpl = str(settings.SBPL)
-		to_print = [
-			sbpl.format(serial=self.order_data['production_order_data']['serial_ini'] + i)
-			for i in range(self.order_data['production_order_data']['quantity'])
+		production_order = self.order_data['production_order_data']
+		production_order_id = production_order['id']
+		production_order_batch_id = self.order_data['production_order_batch_data']['id']
+		already_printed = {
+			str(serial)
+			for serial in self.get_already_printed(
+				production_order_id,
+				production_order_batch_id,
+			)
+		}
+		serials_to_print = [
+			production_order['serial_ini'] + offset
+			for offset in range(production_order['quantity'])
+			if str(production_order['serial_ini'] + offset) not in already_printed
 		]
+		if not serials_to_print:
+			logging.info('All serials for this production order batch are already printed')
+			return
+
+		sbpl = str(settings.SBPL)
+		to_print = [sbpl.format(serial=serial) for serial in serials_to_print]
 		ids = self.devices.add_to_print_queue(device_name, to_print)
 		if not ids:
 			raise RuntimeError('Failed to add to print queue')
+		if isinstance(ids, str):
+			ids = [ids]
 
-		for i, id in enumerate(ids):
-			self.order_data['print_ids'][id] = {
-				'serial': self.order_data['production_order_data']['serial_ini'] + i,
+		for print_id, serial in zip(ids, serials_to_print):
+			self.order_data['print_ids'][print_id] = {
+				'serial': serial,
 				'status': 'pending',
 			}
 
-	def save_print_to_db(self, print_id: str):
+	def save_print_to_db(self, print_data: dict):
 		if not self.order_data:
 			raise RuntimeError('Order data is not set')
-		print_data = self.order_data['print_ids'].get(print_id)
-		if not print_data:
+		event_print_data = print_data
+		print_id = event_print_data.get('id')
+		print_record = self.order_data['print_ids'].get(print_id)
+		if not print_record:
 			raise RuntimeError(f'Print ID {print_id} not found in order data')
 		# Save print_data to the database here
 		params = {
@@ -223,18 +266,22 @@ class Controller:
 			'production_order_batch_id': self.order_data.get('production_order_batch_data', {}).get(
 				'id'
 			),
-			'serial': print_data.get('serial'),
-			'barcode': str(print_data.get('serial')),
-			'epc': str(print_data.get('serial')),
+			'serial': print_record.get('serial'),
+			'barcode': str(print_record.get('serial')),
+			'epc': str(print_record.get('serial')),
 			'locked': 0,
 			'reg_date': datetime.now(),
+			'epc_original': event_print_data.get('epc_original', event_print_data.get('epc')),
+			'tid': event_print_data.get('tid'),
 		}
 		update_query = """
 			UPDATE production_order_tag
 			SET barcode = :barcode,
 				epc = :epc,
 				locked = :locked,
-				reg_date = :reg_date
+				reg_date = :reg_date,
+				epc_original = :epc_original,
+				tid = :tid
 			WHERE production_order_id = :production_order_id
 				AND production_order_batch_id = :production_order_batch_id
 				AND serial = :serial
@@ -248,8 +295,8 @@ class Controller:
 			LIMIT 1
 		"""
 		insert_query = """
-			INSERT INTO production_order_tag (production_order_id, production_order_batch_id, serial, barcode, epc, locked, reg_date)
-			VALUES (:production_order_id, :production_order_batch_id, :serial, :barcode, :epc, :locked, :reg_date)
+			INSERT INTO production_order_tag (production_order_id, production_order_batch_id, serial, barcode, epc, locked, reg_date, epc_original, tid)
+			VALUES (:production_order_id, :production_order_batch_id, :serial, :barcode, :epc, :locked, :reg_date, :epc_original, :tid)
 		"""
 		with self.smtx_db.get_session() as session:
 			self.smtx_db.execute_query(update_query, params, session=session)
@@ -265,4 +312,4 @@ class Controller:
 			if not record_exists:
 				self.smtx_db.execute_query(insert_query, params, session=session)
 
-		logging.info('Saved print data to the database: %s', print_data)
+		logging.info('Saved print data to the database: %s', print_record)
