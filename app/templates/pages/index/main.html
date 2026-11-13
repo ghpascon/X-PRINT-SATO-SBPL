@@ -63,7 +63,7 @@
       <div x-show="!productionStarted" class="space-y-4">
         <div>
           <label for="production-printer" class="mb-2 block text-sm font-semibold text-slate-700">Impressora</label>
-          <select id="production-printer" x-model="selectedPrinterName"
+          <select id="production-printer" x-model="selectedPrinterName" @change="syncProductionFromPrinter()"
             :disabled="loadingDevices || printers.length === 0 || startingProduction"
             class="w-full max-w-xl rounded-xl border border-slate-300 bg-white px-4 py-3 text-sm text-slate-800 shadow-sm outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-100 disabled:cursor-not-allowed disabled:bg-slate-50">
             <option value="" x-text="loadingDevices ? 'Carregando impressoras…' : 'Selecione uma impressora'"></option>
@@ -77,6 +77,9 @@
           </p>
           <p x-show="selectedPrinter() && !selectedPrinter().is_connected" class="mt-2 text-sm text-red-600" x-cloak>
             A impressora selecionada está desconectada.
+          </p>
+          <p x-show="selectedPrinter()" class="mt-2 text-sm text-slate-600" x-cloak>
+            Status do dispositivo: <span class="font-semibold" x-text="printerStatus()"></span>
           </p>
         </div>
 
@@ -93,6 +96,9 @@
             <p class="text-sm font-semibold text-blue-900">Produção iniciada</p>
             <p class="mt-1 text-sm text-blue-800">
               Impressora: <span class="font-semibold" x-text="selectedPrinterName"></span>
+            </p>
+            <p class="mt-1 text-sm text-blue-800">
+              Status do dispositivo: <span class="font-semibold" x-text="printerStatus()"></span>
             </p>
             <p class="mt-1 text-sm text-blue-800">
               Etiquetas aguardando na fila: <span class="font-bold tabular-nums"
@@ -168,7 +174,13 @@
           this.printers = (Array.isArray(devices) ? devices : []).filter(
             (device) => device.device_type === "printer",
           );
-          if (this.printers.length === 1) {
+          const printerWithQueue = this.printers.find((printer) => Number(printer.to_print) > 0);
+          if (printerWithQueue) {
+            this.selectedPrinterName = printerWithQueue.name;
+            this.queueCount = Number(printerWithQueue.to_print);
+            this.productionStarted = true;
+            this.ensureQueuePolling();
+          } else if (this.printers.length === 1) {
             this.selectedPrinterName = this.printers[0].name;
           }
         } catch (error) {
@@ -182,6 +194,30 @@
         return this.printers.find((printer) => printer.name === this.selectedPrinterName) || null;
       },
 
+      printerStatus() {
+        const printer = this.selectedPrinter();
+        if (!printer) return "Não selecionada";
+        if (!printer.is_connected) return "Desconectada";
+        return printer.can_print ? "Conectada e pronta" : "Conectada, ocupada ou não pronta";
+      },
+
+      syncProductionFromPrinter() {
+        const printer = this.selectedPrinter();
+        const count = printer?.to_print == null ? 0 : Number(printer.to_print);
+        if (Number.isFinite(count) && count > 0) {
+          this.queueCount = count;
+          this.productionStarted = true;
+          this.ensureQueuePolling();
+        } else if (!this.productionStarted) {
+          this.queueCount = null;
+        }
+      },
+
+      ensureQueuePolling() {
+        if (this.queuePollHandle) return;
+        this.queuePollHandle = setInterval(() => this.refreshQueueCount(), 2000);
+      },
+
       async refreshQueueCount() {
         if (!this.selectedPrinterName) return;
         try {
@@ -193,6 +229,9 @@
             this.printers = this.printers.map((item) => item.name === printer.name ? printer : item);
             const count = printer.to_print == null ? NaN : Number(printer.to_print);
             this.queueCount = Number.isFinite(count) ? count : null;
+            if (Number.isFinite(count) && count > 0) {
+              this.productionStarted = true;
+            }
           } else {
             this.queueCount = null;
           }
@@ -207,6 +246,12 @@
         this.startingProduction = true;
         this.errorMessage = "";
         try {
+          await this.refreshQueueCount();
+          if (this.queueCount > 0) {
+            this.productionStarted = true;
+            this.ensureQueuePolling();
+            return;
+          }
           const endpoint = this.urls.startProduction.replace(
             "DEVICE_NAME",
             encodeURIComponent(this.selectedPrinterName),
@@ -214,7 +259,7 @@
           await this.getJson(endpoint, { method: "POST" });
           this.productionStarted = true;
           await this.refreshQueueCount();
-          this.queuePollHandle = setInterval(() => this.refreshQueueCount(), 2000);
+          this.ensureQueuePolling();
         } catch (error) {
           this.errorMessage = error.message || "Não foi possível iniciar a produção.";
         } finally {
