@@ -219,23 +219,51 @@ class Controller:
 		if not print_data:
 			raise RuntimeError(f'Print ID {print_id} not found in order data')
 		# Save print_data to the database here
-		query = """
+		params = {
+			'production_order_id': self.order_data.get('production_order_data', {}).get('id'),
+			'production_order_batch_id': self.order_data.get('production_order_batch_data', {}).get(
+				'id'
+			),
+			'serial': print_data.get('serial'),
+			'barcode': str(print_data.get('serial')),
+			'epc': str(print_data.get('serial')),
+			'locked': 0,
+			'reg_date': datetime.now(),
+		}
+		update_query = """
+			UPDATE production_order_tag
+			SET barcode = :barcode,
+				epc = :epc,
+				locked = :locked,
+				reg_date = :reg_date
+			WHERE production_order_id = :production_order_id
+				AND production_order_batch_id = :production_order_batch_id
+				AND serial = :serial
+		"""
+		check_query = """
+			SELECT 1 AS record_exists
+			FROM production_order_tag
+			WHERE production_order_id = :production_order_id
+				AND production_order_batch_id = :production_order_batch_id
+				AND serial = :serial
+			LIMIT 1
+		"""
+		insert_query = """
 			INSERT INTO production_order_tag (production_order_id, production_order_batch_id, serial, barcode, epc, locked, reg_date)
 			VALUES (:production_order_id, :production_order_batch_id, :serial, :barcode, :epc, :locked, :reg_date)
 		"""
-		self.smtx_db.execute_query(
-			query,
-			{
-				'production_order_id': self.order_data.get('production_order_data', {}).get('id'),
-				'production_order_batch_id': self.order_data.get(
-					'production_order_batch_data', {}
-				).get('id'),
-				'serial': print_data.get('serial'),
-				'barcode': str(print_data.get('serial')),
-				'epc': str(print_data.get('serial')),
-				'locked': 0,
-				'reg_date': datetime.now(),
-			},
-		)
+		with self.smtx_db.get_session() as session:
+			self.smtx_db.execute_query(update_query, params, session=session)
+			record_exists = self.smtx_db.execute_query(
+				check_query,
+				{
+					'production_order_id': params['production_order_id'],
+					'production_order_batch_id': params['production_order_batch_id'],
+					'serial': params['serial'],
+				},
+				session=session,
+			)
+			if not record_exists:
+				self.smtx_db.execute_query(insert_query, params, session=session)
 
 		logging.info('Saved print data to the database: %s', print_data)
