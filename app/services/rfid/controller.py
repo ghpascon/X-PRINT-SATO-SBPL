@@ -11,7 +11,6 @@ from .integration import Integration
 import asyncio
 from app.core import settings
 import logging
-from app.services.license import license_manager
 from smartx_rfid.schemas.tag import WriteTagValidator
 from smartx_rfid.db import DatabaseManager
 from datetime import datetime
@@ -67,8 +66,8 @@ class Controller:
 	# [ Reading Events ]
 	def on_start(self, device: dict):
 		logging.info(f"[ START ] {device.get('name')}")
-		if not license_manager.validate_license():
-			return
+		# if not license_manager.validate_license():
+		# 	return
 		if settings.CLEAR_ON_START:
 			self.tags.remove_tags_by_device(device=device)
 
