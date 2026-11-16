@@ -22,6 +22,12 @@ def _system_device(name: str) -> dict:
 
 
 class Controller:
+	@staticmethod
+	def _serial_for_db(serial: int) -> int:
+		if serial > 99999999999:
+			return int(str(serial)[1:])
+		return serial
+
 	def __init__(self, devices: DeviceManager, tags: TagList, integration: Integration):
 		self.tags = tags
 		self.devices = devices
@@ -232,7 +238,8 @@ class Controller:
 		serials_to_print = [
 			production_order['serial_ini'] + offset
 			for offset in range(production_order['quantity'])
-			if str(production_order['serial_ini'] + offset) not in already_printed
+			if str(self._serial_for_db(production_order['serial_ini'] + offset))
+			not in already_printed
 		]
 		if not serials_to_print:
 			logging.info('All serials for this production order batch are already printed')
@@ -261,9 +268,7 @@ class Controller:
 		if not print_record:
 			raise RuntimeError(f'Print ID {print_id} not found in order data')
 		# Save print_data to the database here
-		serial = print_record.get('serial')
-		if serial > 99999999999:
-			serial = int(str(serial)[1:])
+		serial = self._serial_for_db(print_record.get('serial'))
 		params = {
 			'production_order_id': self.order_data.get('production_order_data', {}).get('id'),
 			'production_order_batch_id': self.order_data.get('production_order_batch_data', {}).get(
