@@ -275,8 +275,8 @@ class Controller:
 				'id'
 			),
 			'serial': serial,
-			'barcode': str(serial),
-			'epc': str(serial),
+			'barcode': str(print_record.get('serial')),
+			'epc': str(print_record.get('serial')),
 			'locked': 0,
 			'reg_date': datetime.now(),
 			'epc_original': event_print_data.get('epc_original', event_print_data.get('epc')),
