@@ -261,14 +261,17 @@ class Controller:
 		if not print_record:
 			raise RuntimeError(f'Print ID {print_id} not found in order data')
 		# Save print_data to the database here
+		serial = print_record.get('serial')
+		if serial > 99999999999:
+			serial = int(str(serial)[1:])
 		params = {
 			'production_order_id': self.order_data.get('production_order_data', {}).get('id'),
 			'production_order_batch_id': self.order_data.get('production_order_batch_data', {}).get(
 				'id'
 			),
-			'serial': print_record.get('serial'),
-			'barcode': str(print_record.get('serial')),
-			'epc': str(print_record.get('serial')),
+			'serial': serial,
+			'barcode': str(serial),
+			'epc': str(serial),
 			'locked': 0,
 			'reg_date': datetime.now(),
 			'epc_original': event_print_data.get('epc_original', event_print_data.get('epc')),
